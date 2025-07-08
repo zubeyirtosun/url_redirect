@@ -6,6 +6,9 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Vercel için özel ayarlar
+app.set('trust proxy', 1);
+
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -21,9 +24,11 @@ app.get('/', (req, res) => {
 
 // URL kısaltma endpoint'i
 app.post('/api/shorten', (req, res) => {
+    console.log('Shorten request received:', req.body);
     const { originalUrl, customName } = req.body;
     
     if (!originalUrl) {
+        console.log('No URL provided');
         return res.status(400).json({ error: 'URL gerekli!' });
     }
     
@@ -65,6 +70,8 @@ app.post('/api/shorten', (req, res) => {
     
     // Kısa URL'i oluştur
     const shortUrl = `${req.protocol}://${req.get('host')}/${shortCode}`;
+    
+    console.log('URL shortened successfully:', { originalUrl, shortUrl, shortCode });
     
     res.json({
         originalUrl,

@@ -30,6 +30,8 @@ document.addEventListener('DOMContentLoaded', function() {
         shortenBtn.textContent = 'Kısaltılıyor...';
 
         try {
+            console.log('Sending request with:', { originalUrl: formattedUrl, customName });
+            
             const response = await fetch('/api/shorten', {
                 method: 'POST',
                 headers: {
@@ -41,7 +43,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 }),
             });
 
+            console.log('Response status:', response.status);
             const data = await response.json();
+            console.log('Response data:', data);
 
             if (response.ok) {
                 showResult(data);
@@ -52,7 +56,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 showError(data.error || 'Bir hata oluştu!');
             }
         } catch (error) {
-            showError('Sunucu bağlantısında hata oluştu!');
+            console.error('Request error:', error);
+            showError('Sunucu bağlantısında hata oluştu: ' + error.message);
         } finally {
             shortenBtn.disabled = false;
             shortenBtn.textContent = 'Kısalt';
