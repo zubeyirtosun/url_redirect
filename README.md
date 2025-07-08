@@ -30,6 +30,19 @@ npm run dev
 
 3. Tarayıcınızda `http://localhost:3000` adresine gidin.
 
+## Deployment
+
+### Vercel ile Deploy
+1. [Vercel](https://vercel.com) hesabınıza giriş yapın
+2. Bu GitHub repository'sini import edin
+3. Deploy butonuna basın
+4. Otomatik olarak canlıya alınacak
+
+### Railway ile Deploy
+1. [Railway](https://railway.app) hesabınıza giriş yapın
+2. GitHub repository'sini bağlayın
+3. Otomatik deployment başlayacak
+
 ## Kullanım
 
 1. **URL Girin**: Yönlendirmek istediğiniz URL'yi girin
@@ -39,9 +52,15 @@ npm run dev
 
 ## Örnekler
 
+### Lokal Geliştirme
 - `localhost:3000/github` → https://github.com/kullaniciadi
 - `localhost:3000/linkedin` → https://linkedin.com/in/profil
 - `localhost:3000/proje` → https://example.com/uzun/proje/linki
+
+### Production (Deploy edilmiş)
+- `yourdomain.vercel.app/github` → https://github.com/kullaniciadi
+- `yourdomain.vercel.app/linkedin` → https://linkedin.com/in/profil
+- `yourdomain.vercel.app/proje` → https://example.com/uzun/proje/linki
 
 ## Teknik Detaylar
 
