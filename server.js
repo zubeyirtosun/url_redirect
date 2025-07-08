@@ -227,10 +227,7 @@ app.get('/api/test', (req, res) => {
         message: 'API çalışıyor!',
         timestamp: new Date().toISOString(),
         urls_count: urlDatabase.size,
-        redis_connected: redis !== null,
-        admin_password_set: !!process.env.ADMIN_PASSWORD,
-        admin_password_preview: process.env.ADMIN_PASSWORD ? process.env.ADMIN_PASSWORD.substring(0, 5) + '...' : 'default',
-        env_vars_count: Object.keys(process.env).filter(key => key.includes('ADMIN') || key.includes('KV')).length
+        redis_connected: redis !== null
     });
 });
 
