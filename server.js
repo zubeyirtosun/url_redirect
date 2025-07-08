@@ -24,40 +24,69 @@ app.use(express.static('public', {
 // URL'leri saklamak için basit bir in-memory database
 const urlDatabase = new Map();
 
-// JSON dosyasından verileri yükle
-const fs = require('fs');
-const dataFile = path.join(__dirname, 'urls.json');
+// Vercel KV için kalıcı storage
+const { kv } = require('@vercel/kv');
 
-function loadUrls() {
+// Hybrid storage: KV + memory cache
+async function loadUrls() {
     try {
-        if (fs.existsSync(dataFile)) {
-            const data = fs.readFileSync(dataFile, 'utf8');
-            const urls = JSON.parse(data);
-            Object.entries(urls).forEach(([key, value]) => {
-                urlDatabase.set(key, value);
-            });
-            console.log(`${urlDatabase.size} URL loaded from storage`);
+        const keys = await kv.keys('url:*');
+        console.log(`Found ${keys.length} URLs in storage`);
+        
+        for (const key of keys) {
+            const shortCode = key.replace('url:', '');
+            const originalUrl = await kv.get(key);
+            if (originalUrl) {
+                urlDatabase.set(shortCode, originalUrl);
+            }
         }
+        console.log(`${urlDatabase.size} URLs loaded to memory`);
     } catch (error) {
-        console.log('No existing data file found, starting fresh');
+        console.log('KV storage not available, using memory only:', error.message);
     }
 }
 
-function saveUrls() {
+async function saveUrl(shortCode, originalUrl) {
     try {
-        const data = Object.fromEntries(urlDatabase);
-        fs.writeFileSync(dataFile, JSON.stringify(data, null, 2));
-        console.log(`${urlDatabase.size} URLs saved to storage`);
+        // Memory'ye kaydet (hızlı erişim için)
+        urlDatabase.set(shortCode, originalUrl);
+        
+        // KV'ye kaydet (kalıcılık için)
+        await kv.set(`url:${shortCode}`, originalUrl);
+        console.log(`URL saved to persistent storage: ${shortCode}`);
     } catch (error) {
-        console.error('Error saving URLs:', error);
+        console.error('Error saving to KV:', error);
+        // KV fail olursa en azından memory'de kalsın
+        urlDatabase.set(shortCode, originalUrl);
     }
+}
+
+async function getUrl(shortCode) {
+    // Önce memory'den bak (hızlı)
+    let url = urlDatabase.get(shortCode);
+    
+    if (!url) {
+        // Memory'de yoksa KV'den bak
+        try {
+            url = await kv.get(`url:${shortCode}`);
+            if (url) {
+                // Buldu, memory'ye de ekle
+                urlDatabase.set(shortCode, url);
+                console.log(`URL loaded from KV storage: ${shortCode}`);
+            }
+        } catch (error) {
+            console.error('Error loading from KV:', error);
+        }
+    }
+    
+    return url;
 }
 
 // Sunucu başlatılırken URL'leri yükle
 loadUrls();
 
 // URL kısaltma endpoint'i (bu önce olmalı)
-app.post('/api/shorten', (req, res) => {
+app.post('/api/shorten', async (req, res) => {
     console.log('=== SHORTEN REQUEST START ===');
     console.log('Headers:', req.headers);
     console.log('Body:', req.body);
@@ -111,11 +140,8 @@ app.post('/api/shorten', (req, res) => {
         }
     }
     
-    // Database'e kaydet
-    urlDatabase.set(shortCode, originalUrl);
-    
-    // Dosyaya kaydet
-    saveUrls();
+    // Kalıcı storage'a kaydet
+    await saveUrl(shortCode, originalUrl);
     
     // Kısa URL'i oluştur
     const shortUrl = `${req.protocol}://${req.get('host')}/${shortCode}`;
@@ -150,17 +176,17 @@ app.get('/api/test', (req, res) => {
 });
 
 // Direkt URL kısaltma testi (GET ile)
-app.get('/api/shorten-test', (req, res) => {
+app.get('/api/shorten-test', async (req, res) => {
     const testUrl = 'https://store.steampowered.com/app/3527290/PEAK/';
     const testCode = 'peak-test';
     
-    // Test URL'ini kaydet
-    urlDatabase.set(testCode, testUrl);
+    // Test URL'ini kalıcı storage'a kaydet
+    await saveUrl(testCode, testUrl);
     
     const shortUrl = `${req.protocol}://${req.get('host')}/${testCode}`;
     
     res.json({
-        message: 'Test URL oluşturuldu!',
+        message: 'Test URL oluşturuldu ve kalıcı storage\'a kaydedildi!',
         originalUrl: testUrl,
         shortUrl: shortUrl,
         shortCode: testCode,
@@ -174,7 +200,7 @@ app.get('/', (req, res) => {
 });
 
 // Yönlendirme endpoint'i (en sonda olmalı - catch-all)
-app.get('/:shortCode', (req, res) => {
+app.get('/:shortCode', async (req, res) => {
     const { shortCode } = req.params;
     
     // Sadece belirli static dosyaları hariç tut (nokta genel olarak hariç değil)
@@ -188,7 +214,7 @@ app.get('/:shortCode', (req, res) => {
     }
     
     console.log('Redirect request for:', shortCode);
-    const originalUrl = urlDatabase.get(shortCode);
+    const originalUrl = await getUrl(shortCode);
     
     if (!originalUrl) {
         console.log('URL not found for code:', shortCode);
@@ -204,15 +230,4 @@ app.listen(PORT, () => {
     console.log(`Sunucu http://localhost:${PORT} adresinde çalışıyor`);
 });
 
-// Graceful shutdown - sunucu kapatılırken verileri kaydet
-process.on('SIGTERM', () => {
-    console.log('Server shutting down, saving URLs...');
-    saveUrls();
-    process.exit(0);
-});
-
-process.on('SIGINT', () => {
-    console.log('Server interrupted, saving URLs...');
-    saveUrls();
-    process.exit(0);
-}); 
+// Artık graceful shutdown'a gerek yok - Vercel KV otomatik persist ediyor 
