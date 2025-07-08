@@ -17,12 +17,7 @@ app.use(express.static('public'));
 // URL'leri saklamak için basit bir in-memory database
 const urlDatabase = new Map();
 
-// Ana sayfa
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// URL kısaltma endpoint'i
+// URL kısaltma endpoint'i (bu önce olmalı)
 app.post('/api/shorten', (req, res) => {
     console.log('Shorten request received:', req.body);
     const { originalUrl, customName } = req.body;
@@ -80,20 +75,6 @@ app.post('/api/shorten', (req, res) => {
     });
 });
 
-// Yönlendirme endpoint'i
-app.get('/:shortCode', (req, res) => {
-    const { shortCode } = req.params;
-    
-    const originalUrl = urlDatabase.get(shortCode);
-    
-    if (!originalUrl) {
-        return res.status(404).json({ error: 'URL bulunamadı!' });
-    }
-    
-    // Orijinal URL'ye yönlendir
-    res.redirect(originalUrl);
-});
-
 // Tüm kısaltılmış URL'leri görüntüleme (opsiyonel)
 app.get('/api/urls', (req, res) => {
     const urls = Array.from(urlDatabase.entries()).map(([shortCode, originalUrl]) => ({
@@ -103,6 +84,28 @@ app.get('/api/urls', (req, res) => {
     }));
     
     res.json(urls);
+});
+
+// Ana sayfa
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Yönlendirme endpoint'i (en sonda olmalı - catch-all)
+app.get('/:shortCode', (req, res) => {
+    const { shortCode } = req.params;
+    
+    console.log('Redirect request for:', shortCode);
+    const originalUrl = urlDatabase.get(shortCode);
+    
+    if (!originalUrl) {
+        console.log('URL not found for code:', shortCode);
+        return res.status(404).json({ error: 'URL bulunamadı!' });
+    }
+    
+    console.log('Redirecting to:', originalUrl);
+    // Orijinal URL'ye yönlendir
+    res.redirect(originalUrl);
 });
 
 app.listen(PORT, () => {
