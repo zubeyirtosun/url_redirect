@@ -24,25 +24,48 @@ app.use(express.static('public', {
 // URL'leri saklamak için basit bir in-memory database
 const urlDatabase = new Map();
 
-// Vercel KV için kalıcı storage
-const { kv } = require('@vercel/kv');
+// MongoDB için kalıcı storage
+const { MongoClient } = require('mongodb');
 
-// Hybrid storage: KV + memory cache
-async function loadUrls() {
+let db = null;
+let collection = null;
+
+// MongoDB bağlantısı
+async function connectMongoDB() {
     try {
-        const keys = await kv.keys('url:*');
-        console.log(`Found ${keys.length} URLs in storage`);
-        
-        for (const key of keys) {
-            const shortCode = key.replace('url:', '');
-            const originalUrl = await kv.get(key);
-            if (originalUrl) {
-                urlDatabase.set(shortCode, originalUrl);
-            }
+        if (process.env.MONGODB_URI) {
+            const client = new MongoClient(process.env.MONGODB_URI);
+            await client.connect();
+            db = client.db('urlshortener');
+            collection = db.collection('urls');
+            console.log('MongoDB connected successfully');
+            return true;
+        } else {
+            console.log('MongoDB URI not found, using memory only');
+            return false;
         }
-        console.log(`${urlDatabase.size} URLs loaded to memory`);
     } catch (error) {
-        console.log('KV storage not available, using memory only:', error.message);
+        console.log('MongoDB connection failed, using memory only:', error.message);
+        return false;
+    }
+}
+
+// Hybrid storage: MongoDB + memory cache
+async function loadUrls() {
+    const mongoConnected = await connectMongoDB();
+    
+    if (mongoConnected && collection) {
+        try {
+            const urls = await collection.find({}).toArray();
+            console.log(`Found ${urls.length} URLs in MongoDB`);
+            
+            urls.forEach(doc => {
+                urlDatabase.set(doc.shortCode, doc.originalUrl);
+            });
+            console.log(`${urlDatabase.size} URLs loaded to memory`);
+        } catch (error) {
+            console.log('Error loading from MongoDB:', error.message);
+        }
     }
 }
 
@@ -51,12 +74,25 @@ async function saveUrl(shortCode, originalUrl) {
         // Memory'ye kaydet (hızlı erişim için)
         urlDatabase.set(shortCode, originalUrl);
         
-        // KV'ye kaydet (kalıcılık için)
-        await kv.set(`url:${shortCode}`, originalUrl);
-        console.log(`URL saved to persistent storage: ${shortCode}`);
+        // MongoDB'ye kaydet (kalıcılık için)
+        if (collection) {
+            await collection.replaceOne(
+                { shortCode },
+                { 
+                    shortCode, 
+                    originalUrl, 
+                    createdAt: new Date(),
+                    lastAccessed: new Date()
+                },
+                { upsert: true }
+            );
+            console.log(`URL saved to MongoDB: ${shortCode}`);
+        } else {
+            console.log(`URL saved to memory only: ${shortCode}`);
+        }
     } catch (error) {
-        console.error('Error saving to KV:', error);
-        // KV fail olursa en azından memory'de kalsın
+        console.error('Error saving to MongoDB:', error);
+        // MongoDB fail olursa en azından memory'de kalsın
         urlDatabase.set(shortCode, originalUrl);
     }
 }
@@ -65,17 +101,24 @@ async function getUrl(shortCode) {
     // Önce memory'den bak (hızlı)
     let url = urlDatabase.get(shortCode);
     
-    if (!url) {
-        // Memory'de yoksa KV'den bak
+    if (!url && collection) {
+        // Memory'de yoksa MongoDB'den bak
         try {
-            url = await kv.get(`url:${shortCode}`);
-            if (url) {
+            const doc = await collection.findOne({ shortCode });
+            if (doc) {
+                url = doc.originalUrl;
                 // Buldu, memory'ye de ekle
                 urlDatabase.set(shortCode, url);
-                console.log(`URL loaded from KV storage: ${shortCode}`);
+                
+                // Last accessed güncelle
+                await collection.updateOne(
+                    { shortCode },
+                    { $set: { lastAccessed: new Date() } }
+                );
+                console.log(`URL loaded from MongoDB: ${shortCode}`);
             }
         } catch (error) {
-            console.error('Error loading from KV:', error);
+            console.error('Error loading from MongoDB:', error);
         }
     }
     
