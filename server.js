@@ -26,7 +26,6 @@ const urlDatabase = new Map();
 
 // JSON dosyasından verileri yükle
 const fs = require('fs');
-const path = require('path');
 const dataFile = path.join(__dirname, 'urls.json');
 
 function loadUrls() {
