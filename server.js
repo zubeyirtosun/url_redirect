@@ -12,7 +12,14 @@ app.set('trust proxy', 1);
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.static('public'));
+
+// Static files öncelikli olarak serve et
+app.use(express.static('public', {
+    index: false, // index.html'i otomatik serve etme
+    setHeaders: (res, path) => {
+        console.log('Serving static file:', path);
+    }
+}));
 
 // URL'leri saklamak için basit bir in-memory database
 const urlDatabase = new Map();
@@ -127,6 +134,16 @@ app.get('/', (req, res) => {
 // Yönlendirme endpoint'i (en sonda olmalı - catch-all)
 app.get('/:shortCode', (req, res) => {
     const { shortCode } = req.params;
+    
+    // Static dosyaları ve favicon'u hariç tut
+    if (shortCode.includes('.') || 
+        shortCode === 'favicon.ico' || 
+        shortCode === 'favicon.png' ||
+        shortCode === 'script.js' ||
+        shortCode === 'style.css') {
+        console.log('Static file request ignored:', shortCode);
+        return res.status(404).send('File not found');
+    }
     
     console.log('Redirect request for:', shortCode);
     const originalUrl = urlDatabase.get(shortCode);
