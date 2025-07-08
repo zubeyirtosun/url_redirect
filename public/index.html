@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>URL Kısaltıcı</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>URL Kısaltıcı</h1>
+        <p class="description">Uzun URL'lerinizi kısaltın ve kolayca paylaşın!</p>
+        
+        <div class="url-form">
+            <div class="input-container">
+                <input type="url" id="originalUrl" placeholder="https://example.com/uzun-url" required>
+                <input type="text" id="customName" placeholder="Özel URL adı (opsiyonel): github, projelerim, vs.">
+            </div>
+            <button id="shortenBtn">Kısalt</button>
+        </div>
+        
+        <div id="result" class="result hidden">
+            <h3>Kısaltılmış URL'niz:</h3>
+            <div class="url-display">
+                <input type="text" id="shortUrl" readonly>
+                <button id="copyBtn">Kopyala</button>
+            </div>
+            <p class="original-url">Orijinal: <span id="originalUrlDisplay"></span></p>
+        </div>
+        
+        <div id="error" class="error hidden"></div>
+        
+        <div class="urls-list">
+            <h3>Son Kısaltılan URL'ler</h3>
+            <div id="urlsList"></div>
+            <button id="loadUrlsBtn">Tüm URL'leri Görüntüle</button>
+        </div>
+    </div>
+    
+    <script src="script.js"></script>
+</body>
+</html> 

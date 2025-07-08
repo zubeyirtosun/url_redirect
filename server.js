@@ -1,0 +1,103 @@
+const express = require('express');
+const crypto = require('crypto');
+const cors = require('cors');
+const path = require('path');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+app.use(express.static('public'));
+
+// URL'leri saklamak için basit bir in-memory database
+const urlDatabase = new Map();
+
+// Ana sayfa
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// URL kısaltma endpoint'i
+app.post('/api/shorten', (req, res) => {
+    const { originalUrl, customName } = req.body;
+    
+    if (!originalUrl) {
+        return res.status(400).json({ error: 'URL gerekli!' });
+    }
+    
+    // URL formatını kontrol et
+    let validUrl;
+    try {
+        validUrl = new URL(originalUrl);
+    } catch (error) {
+        return res.status(400).json({ error: 'Geçersiz URL formatı!' });
+    }
+    
+    let shortCode;
+    
+    // Özel isim verilmişse onu kullan, yoksa rastgele oluştur
+    if (customName && customName.trim()) {
+        shortCode = customName.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
+        
+        // Özel isim boş kalırsa rastgele oluştur
+        if (!shortCode) {
+            shortCode = crypto.randomBytes(4).toString('hex');
+        }
+        
+        // Bu isim zaten kullanılıyor mu kontrol et
+        if (urlDatabase.has(shortCode)) {
+            return res.status(400).json({ error: 'Bu URL adı zaten kullanılıyor! Başka bir isim deneyin.' });
+        }
+    } else {
+        // Rastgele kod oluştur
+        shortCode = crypto.randomBytes(4).toString('hex');
+        
+        // Rastgele kod çakışması durumunda yeni oluştur
+        while (urlDatabase.has(shortCode)) {
+            shortCode = crypto.randomBytes(4).toString('hex');
+        }
+    }
+    
+    // Database'e kaydet
+    urlDatabase.set(shortCode, originalUrl);
+    
+    // Kısa URL'i oluştur
+    const shortUrl = `${req.protocol}://${req.get('host')}/${shortCode}`;
+    
+    res.json({
+        originalUrl,
+        shortUrl,
+        shortCode
+    });
+});
+
+// Yönlendirme endpoint'i
+app.get('/:shortCode', (req, res) => {
+    const { shortCode } = req.params;
+    
+    const originalUrl = urlDatabase.get(shortCode);
+    
+    if (!originalUrl) {
+        return res.status(404).json({ error: 'URL bulunamadı!' });
+    }
+    
+    // Orijinal URL'ye yönlendir
+    res.redirect(originalUrl);
+});
+
+// Tüm kısaltılmış URL'leri görüntüleme (opsiyonel)
+app.get('/api/urls', (req, res) => {
+    const urls = Array.from(urlDatabase.entries()).map(([shortCode, originalUrl]) => ({
+        shortCode,
+        originalUrl,
+        shortUrl: `${req.protocol}://${req.get('host')}/${shortCode}`
+    }));
+    
+    res.json(urls);
+});
+
+app.listen(PORT, () => {
+    console.log(`Sunucu http://localhost:${PORT} adresinde çalışıyor`);
+}); 
