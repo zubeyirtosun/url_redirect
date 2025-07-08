@@ -329,4 +329,73 @@ h1 {
     .pagination-controls {
         justify-content: center;
     }
+}
+
+/* Sosyal medya paylaşım butonları */
+.social-share {
+    margin-top: 20px;
+    padding: 20px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border: 1px solid #e9ecef;
+}
+
+.social-share h4 {
+    margin: 0 0 15px 0;
+    color: #333;
+    font-size: 16px;
+}
+
+.social-buttons {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.social-btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.3s ease;
+    text-decoration: none;
+    color: white;
+}
+
+.social-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+
+.social-btn.twitter {
+    background: #1DA1F2;
+}
+
+.social-btn.whatsapp {
+    background: #25D366;
+}
+
+.social-btn.telegram {
+    background: #0088cc;
+}
+
+.social-btn.linkedin {
+    background: #0077B5;
+}
+
+.social-btn.facebook {
+    background: #1877F2;
+}
+
+@media (max-width: 600px) {
+    .social-buttons {
+        flex-direction: column;
+    }
+    
+    .social-btn {
+        width: 100%;
+        text-align: center;
+    }
 } 

@@ -164,8 +164,71 @@ document.addEventListener('DOMContentLoaded', function() {
     function showResult(data) {
         shortUrlInput.value = data.shortUrl;
         originalUrlDisplay.textContent = data.originalUrl;
+        
+        // Sosyal medya paylaşım butonları ekle
+        const socialButtonsHtml = `
+            <div class="social-share">
+                <h4>Paylaş:</h4>
+                <div class="social-buttons">
+                    <button onclick="shareToTwitter('${data.shortUrl}', '${encodeURIComponent(data.originalUrl)}')" class="social-btn twitter">
+                        📱 Twitter
+                    </button>
+                    <button onclick="shareToWhatsApp('${data.shortUrl}')" class="social-btn whatsapp">
+                        💬 WhatsApp
+                    </button>
+                    <button onclick="shareToTelegram('${data.shortUrl}')" class="social-btn telegram">
+                        ✈️ Telegram
+                    </button>
+                    <button onclick="shareToLinkedIn('${data.shortUrl}', '${encodeURIComponent(data.originalUrl)}')" class="social-btn linkedin">
+                        💼 LinkedIn
+                    </button>
+                    <button onclick="shareToFacebook('${data.shortUrl}')" class="social-btn facebook">
+                        👤 Facebook
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        // Mevcut social buttons varsa kaldır
+        const existingSocial = resultDiv.querySelector('.social-share');
+        if (existingSocial) {
+            existingSocial.remove();
+        }
+        
+        // Yeni social buttons ekle
+        resultDiv.insertAdjacentHTML('beforeend', socialButtonsHtml);
+        
         resultDiv.classList.remove('hidden');
     }
+
+    // Global sosyal medya paylaşım fonksiyonları
+    window.shareToTwitter = function(shortUrl, originalUrl) {
+        const text = `🔗 Link kısaltıldı: ${originalUrl}`;
+        const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(shortUrl)}`;
+        window.open(url, '_blank', 'width=600,height=400');
+    };
+
+    window.shareToWhatsApp = function(shortUrl) {
+        const text = `🔗 Bu linke bakın: ${shortUrl}`;
+        const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
+        window.open(url, '_blank');
+    };
+
+    window.shareToTelegram = function(shortUrl) {
+        const text = `🔗 Bu linke bakın: ${shortUrl}`;
+        const url = `https://t.me/share/url?url=${encodeURIComponent(shortUrl)}&text=${encodeURIComponent(text)}`;
+        window.open(url, '_blank');
+    };
+
+    window.shareToLinkedIn = function(shortUrl, originalUrl) {
+        const url = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shortUrl)}`;
+        window.open(url, '_blank', 'width=600,height=400');
+    };
+
+    window.shareToFacebook = function(shortUrl) {
+        const url = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shortUrl)}`;
+        window.open(url, '_blank', 'width=600,height=400');
+    };
 
     function showError(message) {
         errorDiv.textContent = message;

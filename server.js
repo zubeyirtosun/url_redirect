@@ -2,6 +2,13 @@ const express = require('express');
 const crypto = require('crypto');
 const cors = require('cors');
 const path = require('path');
+const compression = require('compression');
+const helmet = require('helmet');
+const morgan = require('morgan');
+const rateLimit = require('express-rate-limit');
+const axios = require('axios');
+const cheerio = require('cheerio');
+const validator = require('validator');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -9,9 +16,73 @@ const PORT = process.env.PORT || 3000;
 // Vercel için özel ayarlar
 app.set('trust proxy', 1);
 
-// Middleware
-app.use(cors());
-app.use(express.json());
+// Performance ve Security Middleware
+app.use(compression()); // Gzip compression
+app.use(helmet({ // Güvenlik headers
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            scriptSrc: ["'self'", "'unsafe-inline'"],
+            imgSrc: ["'self'", "data:", "https:"],
+            connectSrc: ["'self'"]
+        }
+    }
+}));
+app.use(morgan('combined')); // Logging
+
+// Rate Limiting
+const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 dakika
+    max: 30, // IP başına maksimum 30 request
+    message: {
+        error: 'Çok fazla istek gönderdiniz! 15 dakika sonra tekrar deneyin.',
+        retryAfter: '15 dakika'
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+// API route'larına rate limit uygula
+app.use('/api/', limiter);
+
+// HTTPS Enforcement (production'da)
+app.use((req, res, next) => {
+    if (process.env.NODE_ENV === 'production' && req.header('x-forwarded-proto') !== 'https') {
+        return res.redirect(301, `https://${req.header('host')}${req.url}`);
+    }
+    next();
+});
+
+// Input sanitization ve XSS koruması
+app.use((req, res, next) => {
+    if (req.body) {
+        // Tehlikeli karakterleri temizle
+        const sanitizeString = (str) => {
+            if (typeof str !== 'string') return str;
+            return str
+                .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+                .replace(/<[^>]*>?/gm, '')
+                .trim();
+        };
+
+        // Body'deki string değerleri temizle
+        Object.keys(req.body).forEach(key => {
+            if (typeof req.body[key] === 'string') {
+                req.body[key] = sanitizeString(req.body[key]);
+            }
+        });
+    }
+    next();
+});
+
+app.use(cors({
+    origin: process.env.NODE_ENV === 'production' 
+        ? ['https://url-redirect-two.vercel.app', 'https://makeurl.dev'] 
+        : true,
+    credentials: true
+}));
+app.use(express.json({ limit: '10mb' })); // JSON size limit
 
 // Static files öncelikli olarak serve et
 app.use(express.static('public', {
@@ -23,6 +94,173 @@ app.use(express.static('public', {
 
 // URL'leri saklamak için basit bir in-memory database
 const urlDatabase = new Map();
+
+// Malicious URL patterns - Bu listeyi genişletebilirsiniz
+const MALICIOUS_PATTERNS = [
+    /bit\.ly\/[a-zA-Z0-9]+/, // Nested URL shorteners
+    /tinyurl\.com\/[a-zA-Z0-9]+/,
+    /t\.co\/[a-zA-Z0-9]+/,
+    /short\.link\/[a-zA-Z0-9]+/,
+    /phishing/i,
+    /malware/i,
+    /virus/i,
+    /scam/i,
+    /fake/i,
+    /doubleclick\.net/,
+    /googleadservices\.com/,
+    /googlesyndication\.com/
+];
+
+// Suspicious domains
+const SUSPICIOUS_DOMAINS = [
+    'bit.ly', 'tinyurl.com', 't.co', 'goo.gl', 'ow.ly', 'buff.ly',
+    'free-bitcoin', 'get-rich-quick', 'win-money', 'click-here-now'
+];
+
+// URL güvenlik kontrolü
+async function checkUrlSafety(url) {
+    try {
+        // 1. Basic pattern kontrolü
+        for (const pattern of MALICIOUS_PATTERNS) {
+            if (pattern.test(url)) {
+                return {
+                    safe: false,
+                    reason: 'Şüpheli URL pattern tespit edildi',
+                    pattern: pattern.toString()
+                };
+            }
+        }
+
+        // 2. Domain kontrolü
+        const urlObj = new URL(url);
+        const domain = urlObj.hostname.toLowerCase();
+        
+        for (const suspiciousDomain of SUSPICIOUS_DOMAINS) {
+            if (domain.includes(suspiciousDomain)) {
+                return {
+                    safe: false,
+                    reason: 'Şüpheli domain tespit edildi',
+                    domain: domain
+                };
+            }
+        }
+
+        // 3. URL format doğrulama
+        if (!validator.isURL(url, { 
+            protocols: ['http', 'https'],
+            require_protocol: true,
+            require_host: true,
+            require_valid_protocol: true
+        })) {
+            return {
+                safe: false,
+                reason: 'Geçersiz URL formatı'
+            };
+        }
+
+        // 4. HTTP HEAD request ile erişebilirlik kontrolü
+        try {
+            const response = await axios.head(url, {
+                timeout: 5000,
+                maxRedirects: 3,
+                headers: {
+                    'User-Agent': 'makeURL-Bot/1.0 (+https://url-redirect-two.vercel.app)'
+                }
+            });
+
+            // Şüpheli content type'lar
+            const contentType = response.headers['content-type'] || '';
+            if (contentType.includes('application/octet-stream') || 
+                contentType.includes('application/x-msdownload')) {
+                return {
+                    safe: false,
+                    reason: 'Şüpheli dosya türü tespit edildi',
+                    contentType
+                };
+            }
+
+        } catch (error) {
+            // URL'ye erişilemiyorsa şüpheli kabul et
+            if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
+                return {
+                    safe: false,
+                    reason: 'URL\'ye erişim sağlanamadı',
+                    error: error.message
+                };
+            }
+        }
+
+        return { safe: true, reason: 'URL güvenli görünüyor' };
+
+    } catch (error) {
+        console.error('URL safety check error:', error);
+        return {
+            safe: false,
+            reason: 'Güvenlik kontrolü sırasında hata oluştu',
+            error: error.message
+        };
+    }
+}
+
+// URL önizleme fonksiyonu
+async function getUrlPreview(url) {
+    try {
+        const response = await axios.get(url, {
+            timeout: 10000,
+            maxRedirects: 3,
+            headers: {
+                'User-Agent': 'makeURL-Bot/1.0 (+https://url-redirect-two.vercel.app)'
+            }
+        });
+
+        const $ = cheerio.load(response.data);
+        
+        const preview = {
+            title: $('title').text() || 
+                   $('meta[property="og:title"]').attr('content') || 
+                   $('meta[name="twitter:title"]').attr('content') || 
+                   'Başlık bulunamadı',
+                   
+            description: $('meta[name="description"]').attr('content') || 
+                        $('meta[property="og:description"]').attr('content') || 
+                        $('meta[name="twitter:description"]').attr('content') || 
+                        'Açıklama bulunamadı',
+                        
+            image: $('meta[property="og:image"]').attr('content') || 
+                   $('meta[name="twitter:image"]').attr('content') || 
+                   $('link[rel="icon"]').attr('href') || null,
+                   
+            siteName: $('meta[property="og:site_name"]').attr('content') || 
+                     new URL(url).hostname,
+                     
+            favicon: $('link[rel="icon"]').attr('href') || 
+                    $('link[rel="shortcut icon"]').attr('href') || null
+        };
+
+        // Göreceli URL'leri mutlak URL'ye çevir
+        if (preview.image && !preview.image.startsWith('http')) {
+            const baseUrl = new URL(url);
+            if (preview.image.startsWith('/')) {
+                preview.image = baseUrl.origin + preview.image;
+            } else {
+                preview.image = baseUrl.origin + '/' + preview.image;
+            }
+        }
+
+        return preview;
+
+    } catch (error) {
+        console.error('URL preview error:', error);
+        return {
+            title: 'Önizleme alınamadı',
+            description: 'Bu URL için önizleme bilgisi alınamadı',
+            image: null,
+            siteName: new URL(url).hostname,
+            favicon: null,
+            error: error.message
+        };
+    }
+}
 
 // Upstash Redis için kalıcı storage
 const { Redis } = require('@upstash/redis');
@@ -77,23 +315,29 @@ async function loadUrls() {
     }
 }
 
-async function saveUrl(shortCode, originalUrl) {
+async function saveUrl(shortCode, originalUrl, expirationDays = 365) {
     try {
         // Memory'ye kaydet (hızlı erişim için)
         urlDatabase.set(shortCode, originalUrl);
         
         // Redis'e kaydet (kalıcılık için)
         if (redis) {
-            await redis.set(`url:${shortCode}`, originalUrl);
+            // Expiration süresi hesapla (saniye)
+            const expirationSeconds = expirationDays * 24 * 60 * 60;
+            
+            await redis.set(`url:${shortCode}`, originalUrl, { ex: expirationSeconds });
             
             // Metadata da kaydet (isteğe bağlı)
+            const expirationDate = new Date(Date.now() + (expirationDays * 24 * 60 * 60 * 1000));
             await redis.set(`meta:${shortCode}`, JSON.stringify({
                 createdAt: new Date().toISOString(),
                 lastAccessed: new Date().toISOString(),
+                expiresAt: expirationDate.toISOString(),
+                expirationDays: expirationDays,
                 clicks: 0
-            }));
+            }), { ex: expirationSeconds });
             
-            console.log(`URL saved to Redis: ${shortCode}`);
+            console.log(`URL saved to Redis with ${expirationDays} days expiration: ${shortCode}`);
         } else {
             console.log(`URL saved to memory only: ${shortCode}`);
         }
@@ -148,7 +392,7 @@ app.post('/api/shorten', async (req, res) => {
     console.log('Method:', req.method);
     console.log('URL:', req.url);
     
-    const { originalUrl, customName } = req.body;
+    const { originalUrl, customName, expirationDays } = req.body;
     
     if (!originalUrl) {
         console.log('ERROR: No URL provided');
@@ -169,6 +413,18 @@ app.post('/api/shorten', async (req, res) => {
             debug: `Custom name length: ${customName.length}`
         });
     }
+
+    // Expiration kontrolü
+    let validExpirationDays = 365; // Default 1 yıl
+    if (expirationDays) {
+        if (!Number.isInteger(expirationDays) || expirationDays < 1 || expirationDays > 3650) {
+            return res.status(400).json({ 
+                error: 'Geçerli bir expiration süresi girin! (1-3650 gün arası)',
+                debug: `Expiration days: ${expirationDays}`
+            });
+        }
+        validExpirationDays = expirationDays;
+    }
     
     // URL formatını kontrol et
     let validUrl;
@@ -176,6 +432,27 @@ app.post('/api/shorten', async (req, res) => {
         validUrl = new URL(originalUrl);
     } catch (error) {
         return res.status(400).json({ error: 'Geçersiz URL formatı!' });
+    }
+
+    // Güvenlik kontrolü
+    console.log('Checking URL safety for:', originalUrl);
+    const safetyCheck = await checkUrlSafety(originalUrl);
+    if (!safetyCheck.safe) {
+        console.log('URL rejected for safety:', safetyCheck);
+        return res.status(400).json({ 
+            error: 'Güvenlik nedeniyle bu URL kısaltılamaz!',
+            reason: safetyCheck.reason,
+            details: safetyCheck
+        });
+    }
+
+    // URL önizlemesi al (optional, sadece başarılı response için)
+    let preview = null;
+    try {
+        preview = await getUrlPreview(originalUrl);
+        console.log('URL preview generated:', preview.title);
+    } catch (error) {
+        console.log('Preview generation failed:', error.message);
     }
     
     let shortCode;
@@ -211,17 +488,205 @@ app.post('/api/shorten', async (req, res) => {
     }
     
     // Kalıcı storage'a kaydet
-    await saveUrl(shortCode, originalUrl);
+    await saveUrl(shortCode, originalUrl, validExpirationDays);
     
     // Kısa URL'i oluştur
     const shortUrl = `${req.protocol}://${req.get('host')}/${shortCode}`;
     
     console.log('URL shortened successfully:', { originalUrl, shortUrl, shortCode });
     
-    res.json({
+    const response = {
         originalUrl,
         shortUrl,
-        shortCode
+        shortCode,
+        safetyCheck: safetyCheck.reason,
+        expirationDays: validExpirationDays,
+        expiresAt: new Date(Date.now() + (validExpirationDays * 24 * 60 * 60 * 1000)).toISOString()
+    };
+
+    // Preview varsa ekle
+    if (preview && !preview.error) {
+        response.preview = preview;
+    }
+    
+    res.json(response);
+});
+
+// Toplu URL kısaltma endpoint'i
+app.post('/api/bulk-shorten', async (req, res) => {
+    console.log('=== BULK SHORTEN REQUEST START ===');
+    
+    const { urls, defaultExpirationDays } = req.body;
+    
+    if (!urls || !Array.isArray(urls) || urls.length === 0) {
+        return res.status(400).json({ 
+            error: 'URL listesi gerekli!',
+            debug: 'urls array is required'
+        });
+    }
+
+    if (urls.length > 100) {
+        return res.status(400).json({ 
+            error: 'Maksimum 100 URL aynı anda kısaltılabilir!',
+            debug: `URL count: ${urls.length}`
+        });
+    }
+
+    const results = [];
+    const errors = [];
+    let successCount = 0;
+
+    for (let i = 0; i < urls.length; i++) {
+        const urlData = urls[i];
+        
+        try {
+            // URL string ise object'e çevir
+            const urlInfo = typeof urlData === 'string' 
+                ? { originalUrl: urlData } 
+                : urlData;
+
+            const { originalUrl, customName, expirationDays } = urlInfo;
+
+            if (!originalUrl) {
+                errors.push({
+                    index: i,
+                    url: urlData,
+                    error: 'URL gerekli!'
+                });
+                continue;
+            }
+
+            // Karakter sınırları
+            if (originalUrl.length > 2000) {
+                errors.push({
+                    index: i,
+                    url: originalUrl,
+                    error: 'URL çok uzun (max 2000 karakter)'
+                });
+                continue;
+            }
+
+            if (customName && customName.length > 50) {
+                errors.push({
+                    index: i,
+                    url: originalUrl,
+                    error: 'Özel isim çok uzun (max 50 karakter)'
+                });
+                continue;
+            }
+
+            // URL format kontrolü
+            let validUrl;
+            try {
+                validUrl = new URL(originalUrl);
+            } catch (error) {
+                errors.push({
+                    index: i,
+                    url: originalUrl,
+                    error: 'Geçersiz URL formatı'
+                });
+                continue;
+            }
+
+            // Güvenlik kontrolü
+            const safetyCheck = await checkUrlSafety(originalUrl);
+            if (!safetyCheck.safe) {
+                errors.push({
+                    index: i,
+                    url: originalUrl,
+                    error: 'Güvenlik nedeniyle reddedildi',
+                    reason: safetyCheck.reason
+                });
+                continue;
+            }
+
+            // Expiration kontrolü
+            let validExpirationDays = defaultExpirationDays || 365;
+            if (expirationDays) {
+                if (!Number.isInteger(expirationDays) || expirationDays < 1 || expirationDays > 3650) {
+                    errors.push({
+                        index: i,
+                        url: originalUrl,
+                        error: 'Geçersiz expiration süresi (1-3650 gün)'
+                    });
+                    continue;
+                }
+                validExpirationDays = expirationDays;
+            }
+
+            // Short code oluştur
+            let shortCode;
+            if (customName && customName.trim()) {
+                shortCode = customName.trim().toLowerCase().replace(/[^a-z0-9.\-_]/g, '');
+                
+                if (!shortCode) {
+                    shortCode = crypto.randomBytes(4).toString('hex');
+                }
+
+                // Static file çakışması
+                const forbiddenExtensions = ['.css', '.js', '.png', '.ico', '.jpg', '.jpeg', '.gif', '.svg'];
+                if (forbiddenExtensions.some(ext => shortCode.endsWith(ext))) {
+                    errors.push({
+                        index: i,
+                        url: originalUrl,
+                        error: 'Özel isim sistem dosyalarıyla çakışıyor'
+                    });
+                    continue;
+                }
+
+                // Çakışma kontrolü
+                if (urlDatabase.has(shortCode)) {
+                    errors.push({
+                        index: i,
+                        url: originalUrl,
+                        error: 'Bu özel isim zaten kullanılıyor'
+                    });
+                    continue;
+                }
+            } else {
+                shortCode = crypto.randomBytes(4).toString('hex');
+                while (urlDatabase.has(shortCode)) {
+                    shortCode = crypto.randomBytes(4).toString('hex');
+                }
+            }
+
+            // Kaydet
+            await saveUrl(shortCode, originalUrl, validExpirationDays);
+
+            // Başarılı sonuç
+            const shortUrl = `${req.protocol}://${req.get('host')}/${shortCode}`;
+            results.push({
+                index: i,
+                originalUrl,
+                shortUrl,
+                shortCode,
+                expirationDays: validExpirationDays,
+                expiresAt: new Date(Date.now() + (validExpirationDays * 24 * 60 * 60 * 1000)).toISOString(),
+                safetyCheck: safetyCheck.reason
+            });
+
+            successCount++;
+
+        } catch (error) {
+            console.error(`Bulk shorten error for index ${i}:`, error);
+            errors.push({
+                index: i,
+                url: urlData,
+                error: 'İşleme sırasında hata oluştu',
+                details: error.message
+            });
+        }
+    }
+
+    console.log(`Bulk operation completed: ${successCount} success, ${errors.length} errors`);
+
+    res.json({
+        message: `${successCount} URL başarıyla kısaltıldı, ${errors.length} hata oluştu`,
+        totalRequested: urls.length,
+        successCount,
+        errorCount: errors.length,
+        results,
+        errors
     });
 });
 
