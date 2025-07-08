@@ -24,47 +24,55 @@ app.use(express.static('public', {
 // URL'leri saklamak için basit bir in-memory database
 const urlDatabase = new Map();
 
-// MongoDB için kalıcı storage
-const { MongoClient } = require('mongodb');
+// Upstash Redis için kalıcı storage
+const { Redis } = require('@upstash/redis');
 
-let db = null;
-let collection = null;
+let redis = null;
 
-// MongoDB bağlantısı
-async function connectMongoDB() {
+// Redis bağlantısı
+function initRedis() {
     try {
-        if (process.env.MONGODB_URI) {
-            const client = new MongoClient(process.env.MONGODB_URI);
-            await client.connect();
-            db = client.db('urlshortener');
-            collection = db.collection('urls');
-            console.log('MongoDB connected successfully');
+        if (process.env.KV_URL && process.env.KV_REST_API_TOKEN) {
+            redis = new Redis({
+                url: process.env.KV_URL,
+                token: process.env.KV_REST_API_TOKEN,
+            });
+            console.log('Upstash Redis initialized successfully');
             return true;
         } else {
-            console.log('MongoDB URI not found, using memory only');
+            console.log('Redis credentials not found, using memory only');
             return false;
         }
     } catch (error) {
-        console.log('MongoDB connection failed, using memory only:', error.message);
+        console.log('Redis initialization failed, using memory only:', error.message);
         return false;
     }
 }
 
-// Hybrid storage: MongoDB + memory cache
+// Hybrid storage: Redis + memory cache
 async function loadUrls() {
-    const mongoConnected = await connectMongoDB();
+    const redisConnected = initRedis();
     
-    if (mongoConnected && collection) {
+    if (redisConnected && redis) {
         try {
-            const urls = await collection.find({}).toArray();
-            console.log(`Found ${urls.length} URLs in MongoDB`);
+            // Redis'ten tüm URL anahtarlarını al
+            const keys = await redis.keys('url:*');
+            console.log(`Found ${keys.length} URLs in Redis`);
             
-            urls.forEach(doc => {
-                urlDatabase.set(doc.shortCode, doc.originalUrl);
-            });
+            // Her key için değeri al
+            if (keys.length > 0) {
+                const values = await redis.mget(...keys);
+                keys.forEach((key, index) => {
+                    const shortCode = key.replace('url:', '');
+                    const originalUrl = values[index];
+                    if (originalUrl) {
+                        urlDatabase.set(shortCode, originalUrl);
+                    }
+                });
+            }
             console.log(`${urlDatabase.size} URLs loaded to memory`);
         } catch (error) {
-            console.log('Error loading from MongoDB:', error.message);
+            console.log('Error loading from Redis:', error.message);
         }
     }
 }
@@ -74,25 +82,24 @@ async function saveUrl(shortCode, originalUrl) {
         // Memory'ye kaydet (hızlı erişim için)
         urlDatabase.set(shortCode, originalUrl);
         
-        // MongoDB'ye kaydet (kalıcılık için)
-        if (collection) {
-            await collection.replaceOne(
-                { shortCode },
-                { 
-                    shortCode, 
-                    originalUrl, 
-                    createdAt: new Date(),
-                    lastAccessed: new Date()
-                },
-                { upsert: true }
-            );
-            console.log(`URL saved to MongoDB: ${shortCode}`);
+        // Redis'e kaydet (kalıcılık için)
+        if (redis) {
+            await redis.set(`url:${shortCode}`, originalUrl);
+            
+            // Metadata da kaydet (isteğe bağlı)
+            await redis.set(`meta:${shortCode}`, JSON.stringify({
+                createdAt: new Date().toISOString(),
+                lastAccessed: new Date().toISOString(),
+                clicks: 0
+            }));
+            
+            console.log(`URL saved to Redis: ${shortCode}`);
         } else {
             console.log(`URL saved to memory only: ${shortCode}`);
         }
     } catch (error) {
-        console.error('Error saving to MongoDB:', error);
-        // MongoDB fail olursa en azından memory'de kalsın
+        console.error('Error saving to Redis:', error);
+        // Redis fail olursa en azından memory'de kalsın
         urlDatabase.set(shortCode, originalUrl);
     }
 }
@@ -101,24 +108,29 @@ async function getUrl(shortCode) {
     // Önce memory'den bak (hızlı)
     let url = urlDatabase.get(shortCode);
     
-    if (!url && collection) {
-        // Memory'de yoksa MongoDB'den bak
+    if (!url && redis) {
+        // Memory'de yoksa Redis'ten bak
         try {
-            const doc = await collection.findOne({ shortCode });
-            if (doc) {
-                url = doc.originalUrl;
+            url = await redis.get(`url:${shortCode}`);
+            if (url) {
                 // Buldu, memory'ye de ekle
                 urlDatabase.set(shortCode, url);
                 
                 // Last accessed güncelle
-                await collection.updateOne(
-                    { shortCode },
-                    { $set: { lastAccessed: new Date() } }
-                );
-                console.log(`URL loaded from MongoDB: ${shortCode}`);
+                try {
+                    const metaData = await redis.get(`meta:${shortCode}`);
+                    let meta = metaData ? JSON.parse(metaData) : { clicks: 0 };
+                    meta.lastAccessed = new Date().toISOString();
+                    meta.clicks = (meta.clicks || 0) + 1;
+                    await redis.set(`meta:${shortCode}`, JSON.stringify(meta));
+                } catch (metaError) {
+                    console.log('Error updating metadata:', metaError);
+                }
+                
+                console.log(`URL loaded from Redis: ${shortCode}`);
             }
         } catch (error) {
-            console.error('Error loading from MongoDB:', error);
+            console.error('Error loading from Redis:', error);
         }
     }
     
@@ -214,8 +226,42 @@ app.get('/api/test', (req, res) => {
     res.json({
         message: 'API çalışıyor!',
         timestamp: new Date().toISOString(),
-        urls_count: urlDatabase.size
+        urls_count: urlDatabase.size,
+        redis_connected: redis !== null
     });
+});
+
+// URL istatistikleri endpoint'i
+app.get('/api/stats/:shortCode', async (req, res) => {
+    const { shortCode } = req.params;
+    
+    try {
+        if (redis) {
+            const metaData = await redis.get(`meta:${shortCode}`);
+            const originalUrl = await redis.get(`url:${shortCode}`);
+            
+            if (originalUrl && metaData) {
+                const meta = JSON.parse(metaData);
+                res.json({
+                    shortCode,
+                    originalUrl,
+                    ...meta,
+                    exists: true
+                });
+            } else {
+                res.status(404).json({ error: 'URL bulunamadı!' });
+            }
+        } else {
+            res.json({
+                shortCode,
+                originalUrl: urlDatabase.get(shortCode) || null,
+                message: 'Redis bağlı değil, sadece memory data',
+                exists: urlDatabase.has(shortCode)
+            });
+        }
+    } catch (error) {
+        res.status(500).json({ error: 'İstatistikler alınırken hata oluştu' });
+    }
 });
 
 // Direkt URL kısaltma testi (GET ile)
@@ -229,11 +275,12 @@ app.get('/api/shorten-test', async (req, res) => {
     const shortUrl = `${req.protocol}://${req.get('host')}/${testCode}`;
     
     res.json({
-        message: 'Test URL oluşturuldu ve kalıcı storage\'a kaydedildi!',
+        message: 'Test URL oluşturuldu ve Redis\'e kaydedildi!',
         originalUrl: testUrl,
         shortUrl: shortUrl,
         shortCode: testCode,
-        test_link: `<a href="${shortUrl}" target="_blank">Test Link - Tıkla</a>`
+        test_link: `<a href="${shortUrl}" target="_blank">Test Link - Tıkla</a>`,
+        stats_link: `${req.protocol}://${req.get('host')}/api/stats/${testCode}`
     });
 });
 
