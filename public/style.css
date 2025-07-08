@@ -184,25 +184,65 @@ h1 {
     transform: translateY(-1px);
 }
 
+/* Karakter sayacı */
+.char-count {
+    font-size: 12px;
+    color: #666;
+    text-align: right;
+    margin-top: 5px;
+    font-family: monospace;
+    transition: color 0.3s ease;
+}
+
 .url-item {
     background: #f8f9fa;
     border: 1px solid #e9ecef;
     border-radius: 8px;
     padding: 15px;
     margin-bottom: 10px;
+    transition: all 0.2s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.url-item:hover {
+    background: #e9ecef;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
 
 .url-item-short {
     font-weight: 600;
     color: #007bff;
-    margin-bottom: 5px;
+    margin-bottom: 8px;
     word-break: break-all;
+    font-family: monospace;
 }
 
 .url-item-original {
     color: #666;
     font-size: 14px;
     word-break: break-all;
+    line-height: 1.4;
+    max-height: 42px;
+    overflow: hidden;
+    position: relative;
+    padding-right: 30px;
+}
+
+.url-item-original::after {
+    content: '...';
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 30px;
+    height: 20px;
+    background: linear-gradient(to right, transparent, #f8f9fa);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    color: #999;
 }
 
 @media (max-width: 768px) {
@@ -226,5 +266,67 @@ h1 {
     #shortenBtn {
         max-width: none;
         width: 100%;
+    }
+}
+
+/* Sayfalama stilleri */
+.pagination {
+    margin-top: 20px;
+    padding: 20px 0;
+    border-top: 1px solid #e9ecef;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 15px;
+}
+
+.pagination-info {
+    color: #666;
+    font-size: 14px;
+}
+
+.pagination-controls {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.pagination-controls button {
+    background: #007bff;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.3s ease;
+}
+
+.pagination-controls button:hover:not(:disabled) {
+    background: #0056b3;
+    transform: translateY(-1px);
+}
+
+.pagination-controls button:disabled {
+    background: #6c757d;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.page-info {
+    color: #333;
+    font-weight: 500;
+    font-size: 14px;
+}
+
+@media (max-width: 600px) {
+    .pagination {
+        flex-direction: column;
+        text-align: center;
+    }
+    
+    .pagination-controls {
+        justify-content: center;
     }
 } 

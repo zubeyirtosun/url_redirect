@@ -10,6 +10,43 @@ document.addEventListener('DOMContentLoaded', function() {
     const loadUrlsBtn = document.getElementById('loadUrlsBtn');
     const urlsList = document.getElementById('urlsList');
 
+    // Karakter sayaçları
+    function updateCharacterCount(input, countElement, maxLength) {
+        const currentLength = input.value.length;
+        countElement.textContent = `${currentLength}/${maxLength}`;
+        
+        if (currentLength > maxLength) {
+            countElement.style.color = '#dc3545';
+            input.style.borderColor = '#dc3545';
+        } else if (currentLength > maxLength * 0.8) {
+            countElement.style.color = '#ffc107';
+            input.style.borderColor = '#ffc107';
+        } else {
+            countElement.style.color = '#666';
+            input.style.borderColor = '#ddd';
+        }
+    }
+
+    // Karakter sayaçlarını ekle
+    const urlCharCount = document.createElement('div');
+    urlCharCount.className = 'char-count';
+    urlCharCount.textContent = '0/2000';
+    originalUrlInput.parentNode.appendChild(urlCharCount);
+
+    const customCharCount = document.createElement('div');
+    customCharCount.className = 'char-count';
+    customCharCount.textContent = '0/50';
+    customNameInput.parentNode.appendChild(customCharCount);
+
+    // Input event'leri
+    originalUrlInput.addEventListener('input', function() {
+        updateCharacterCount(this, urlCharCount, 2000);
+    });
+
+    customNameInput.addEventListener('input', function() {
+        updateCharacterCount(this, customCharCount, 50);
+    });
+
     // URL kısaltma
     shortenBtn.addEventListener('click', async function() {
         const originalUrl = originalUrlInput.value.trim();
@@ -17,6 +54,17 @@ document.addEventListener('DOMContentLoaded', function() {
         
         if (!originalUrl) {
             showError('Lütfen bir URL girin!');
+            return;
+        }
+
+        // Karakter sınırı kontrolü
+        if (originalUrl.length > 2000) {
+            showError('URL çok uzun! Maksimum 2000 karakter olmalıdır.');
+            return;
+        }
+
+        if (customName.length > 50) {
+            showError('Özel isim çok uzun! Maksimum 50 karakter olmalıdır.');
             return;
         }
 
@@ -128,21 +176,74 @@ document.addEventListener('DOMContentLoaded', function() {
         errorDiv.classList.add('hidden');
     }
 
+    // Sayfalama değişkenleri
+    let currentPage = 1;
+    const itemsPerPage = 10;
+    let allUrls = [];
+
     function displayUrls(urls) {
-        if (urls.length === 0) {
+        allUrls = Object.entries(urls).map(([shortCode, originalUrl]) => ({
+            shortCode,
+            originalUrl,
+            shortUrl: window.location.origin + '/' + shortCode
+        }));
+
+        if (allUrls.length === 0) {
             urlsList.innerHTML = '<p style="color: #666; text-align: center;">Henüz kısaltılmış URL yok.</p>';
             return;
         }
 
-        urlsList.innerHTML = urls.map(url => `
+        displayPage(currentPage);
+    }
+
+    function displayPage(page) {
+        const startIndex = (page - 1) * itemsPerPage;
+        const endIndex = startIndex + itemsPerPage;
+        const pageUrls = allUrls.slice(startIndex, endIndex);
+        const totalPages = Math.ceil(allUrls.length / itemsPerPage);
+
+        // URL listesini göster
+        const urlsHtml = pageUrls.map(url => `
             <div class="url-item">
                 <div class="url-item-short">
                     <a href="${url.shortUrl}" target="_blank">${url.shortUrl}</a>
                 </div>
-                <div class="url-item-original">
+                <div class="url-item-original" title="${url.originalUrl}">
                     → ${url.originalUrl}
                 </div>
             </div>
         `).join('');
+
+        // Sayfalama kontrollerini oluştur
+        let paginationHtml = '';
+        if (totalPages > 1) {
+            paginationHtml = `
+                <div class="pagination">
+                    <div class="pagination-info">
+                        ${allUrls.length} URL'den ${startIndex + 1}-${Math.min(endIndex, allUrls.length)} arası gösteriliyor
+                    </div>
+                    <div class="pagination-controls">
+                        <button onclick="changePage(${page - 1})" ${page === 1 ? 'disabled' : ''}>
+                            ← Önceki
+                        </button>
+                        <span class="page-info">Sayfa ${page} / ${totalPages}</span>
+                        <button onclick="changePage(${page + 1})" ${page === totalPages ? 'disabled' : ''}>
+                            Sonraki →
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        urlsList.innerHTML = urlsHtml + paginationHtml;
+    }
+
+    // Global function for pagination
+    window.changePage = function(page) {
+        const totalPages = Math.ceil(allUrls.length / itemsPerPage);
+        if (page >= 1 && page <= totalPages) {
+            currentPage = page;
+            displayPage(page);
+        }
     }
 }); 

@@ -154,6 +154,21 @@ app.post('/api/shorten', async (req, res) => {
         console.log('ERROR: No URL provided');
         return res.status(400).json({ error: 'URL gerekli!', debug: 'originalUrl is missing' });
     }
+
+    // Karakter sınırları kontrolü
+    if (originalUrl.length > 2000) {
+        return res.status(400).json({ 
+            error: 'URL çok uzun! Maksimum 2000 karakter olmalıdır.',
+            debug: `URL length: ${originalUrl.length}`
+        });
+    }
+
+    if (customName && customName.length > 50) {
+        return res.status(400).json({ 
+            error: 'Özel isim çok uzun! Maksimum 50 karakter olmalıdır.',
+            debug: `Custom name length: ${customName.length}`
+        });
+    }
     
     // URL formatını kontrol et
     let validUrl;
@@ -211,14 +226,36 @@ app.post('/api/shorten', async (req, res) => {
 });
 
 // Tüm kısaltılmış URL'leri görüntüleme (opsiyonel)
-app.get('/api/urls', (req, res) => {
-    const urls = Array.from(urlDatabase.entries()).map(([shortCode, originalUrl]) => ({
-        shortCode,
-        originalUrl,
-        shortUrl: `${req.protocol}://${req.get('host')}/${shortCode}`
-    }));
-    
-    res.json(urls);
+app.get('/api/urls', async (req, res) => {
+    try {
+        let allUrls = {};
+        
+        // Memory'den al
+        for (const [shortCode, originalUrl] of urlDatabase.entries()) {
+            allUrls[shortCode] = originalUrl;
+        }
+        
+        // Redis'ten al (eğer varsa)
+        if (redis) {
+            try {
+                const urlKeys = await redis.keys('url:*');
+                for (const key of urlKeys) {
+                    const shortCode = key.replace('url:', '');
+                    const originalUrl = await redis.get(key);
+                    if (originalUrl) {
+                        allUrls[shortCode] = originalUrl;
+                    }
+                }
+            } catch (redisError) {
+                console.log('Redis error in /api/urls:', redisError.message);
+            }
+        }
+        
+        res.json(allUrls);
+    } catch (error) {
+        console.error('Error in /api/urls:', error);
+        res.status(500).json({ error: 'URL\'ler alınırken hata oluştu' });
+    }
 });
 
 // API test endpoint'i - direkt tarayıcıdan test edebilmek için
