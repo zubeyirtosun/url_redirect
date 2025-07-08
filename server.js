@@ -19,12 +19,17 @@ const urlDatabase = new Map();
 
 // URL kısaltma endpoint'i (bu önce olmalı)
 app.post('/api/shorten', (req, res) => {
-    console.log('Shorten request received:', req.body);
+    console.log('=== SHORTEN REQUEST START ===');
+    console.log('Headers:', req.headers);
+    console.log('Body:', req.body);
+    console.log('Method:', req.method);
+    console.log('URL:', req.url);
+    
     const { originalUrl, customName } = req.body;
     
     if (!originalUrl) {
-        console.log('No URL provided');
-        return res.status(400).json({ error: 'URL gerekli!' });
+        console.log('ERROR: No URL provided');
+        return res.status(400).json({ error: 'URL gerekli!', debug: 'originalUrl is missing' });
     }
     
     // URL formatını kontrol et
@@ -84,6 +89,34 @@ app.get('/api/urls', (req, res) => {
     }));
     
     res.json(urls);
+});
+
+// API test endpoint'i - direkt tarayıcıdan test edebilmek için
+app.get('/api/test', (req, res) => {
+    res.json({
+        message: 'API çalışıyor!',
+        timestamp: new Date().toISOString(),
+        urls_count: urlDatabase.size
+    });
+});
+
+// Direkt URL kısaltma testi (GET ile)
+app.get('/api/shorten-test', (req, res) => {
+    const testUrl = 'https://store.steampowered.com/app/3527290/PEAK/';
+    const testCode = 'peak-test';
+    
+    // Test URL'ini kaydet
+    urlDatabase.set(testCode, testUrl);
+    
+    const shortUrl = `${req.protocol}://${req.get('host')}/${testCode}`;
+    
+    res.json({
+        message: 'Test URL oluşturuldu!',
+        originalUrl: testUrl,
+        shortUrl: shortUrl,
+        shortCode: testCode,
+        test_link: `<a href="${shortUrl}" target="_blank">Test Link - Tıkla</a>`
+    });
 });
 
 // Ana sayfa
