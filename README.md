@@ -4,12 +4,12 @@ Bu proje, uzun URL'leri kısaltmanızı ve özel isimlerle yönlendirme yapmanı
 
 ## Özellikler
 
-- ✅ URL kısaltma
-- ✅ Özel URL isimleri (örn: `localhost:3000/github` → GitHub sayfanıza)
-- ✅ Anlık yönlendirme
-- ✅ Modern ve responsive tasarım
-- ✅ Kopyalama özelliği
-- ✅ Tüm URL'leri görüntüleme
+-  URL kısaltma
+-  Özel URL isimleri (örn: `localhost:3000/github` → GitHub sayfanıza)
+-  Anlık yönlendirme
+-  Modern ve responsive tasarım
+-  Kopyalama özelliği
+-  Tüm URL'leri görüntüleme
 
 ## Kurulum
 
