@@ -38,4 +38,7 @@ Thumbs.db
 
 # Build output
 dist/
-build/ 
+build/
+
+# Data files
+urls.json 

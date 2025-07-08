@@ -24,6 +24,39 @@ app.use(express.static('public', {
 // URL'leri saklamak için basit bir in-memory database
 const urlDatabase = new Map();
 
+// JSON dosyasından verileri yükle
+const fs = require('fs');
+const path = require('path');
+const dataFile = path.join(__dirname, 'urls.json');
+
+function loadUrls() {
+    try {
+        if (fs.existsSync(dataFile)) {
+            const data = fs.readFileSync(dataFile, 'utf8');
+            const urls = JSON.parse(data);
+            Object.entries(urls).forEach(([key, value]) => {
+                urlDatabase.set(key, value);
+            });
+            console.log(`${urlDatabase.size} URL loaded from storage`);
+        }
+    } catch (error) {
+        console.log('No existing data file found, starting fresh');
+    }
+}
+
+function saveUrls() {
+    try {
+        const data = Object.fromEntries(urlDatabase);
+        fs.writeFileSync(dataFile, JSON.stringify(data, null, 2));
+        console.log(`${urlDatabase.size} URLs saved to storage`);
+    } catch (error) {
+        console.error('Error saving URLs:', error);
+    }
+}
+
+// Sunucu başlatılırken URL'leri yükle
+loadUrls();
+
 // URL kısaltma endpoint'i (bu önce olmalı)
 app.post('/api/shorten', (req, res) => {
     console.log('=== SHORTEN REQUEST START ===');
@@ -81,6 +114,9 @@ app.post('/api/shorten', (req, res) => {
     
     // Database'e kaydet
     urlDatabase.set(shortCode, originalUrl);
+    
+    // Dosyaya kaydet
+    saveUrls();
     
     // Kısa URL'i oluştur
     const shortUrl = `${req.protocol}://${req.get('host')}/${shortCode}`;
@@ -167,4 +203,17 @@ app.get('/:shortCode', (req, res) => {
 
 app.listen(PORT, () => {
     console.log(`Sunucu http://localhost:${PORT} adresinde çalışıyor`);
+});
+
+// Graceful shutdown - sunucu kapatılırken verileri kaydet
+process.on('SIGTERM', () => {
+    console.log('Server shutting down, saving URLs...');
+    saveUrls();
+    process.exit(0);
+});
+
+process.on('SIGINT', () => {
+    console.log('Server interrupted, saving URLs...');
+    saveUrls();
+    process.exit(0);
 }); 
