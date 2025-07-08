@@ -264,6 +264,104 @@ app.get('/api/stats/:shortCode', async (req, res) => {
     }
 });
 
+// URL silme endpoint'i (şifre korumalı)
+app.delete('/api/delete/:shortCode', async (req, res) => {
+    const { shortCode } = req.params;
+    const { password } = req.body;
+    
+    // Şifre kontrolü
+    const adminPassword = process.env.ADMIN_PASSWORD || 'admin123'; // Default şifre
+    if (!password || password !== adminPassword) {
+        return res.status(401).json({ 
+            error: 'Yetkisiz erişim! Doğru şifre gerekli.',
+            hint: 'Body\'de password alanı göndermeniz gerekiyor'
+        });
+    }
+    
+    try {
+        let deleted = false;
+        let originalUrl = null;
+        
+        // Memory'den sil
+        if (urlDatabase.has(shortCode)) {
+            originalUrl = urlDatabase.get(shortCode);
+            urlDatabase.delete(shortCode);
+            deleted = true;
+        }
+        
+        // Redis'ten sil
+        if (redis) {
+            const redisUrl = await redis.get(`url:${shortCode}`);
+            if (redisUrl) {
+                originalUrl = redisUrl;
+                await redis.del(`url:${shortCode}`);
+                await redis.del(`meta:${shortCode}`);
+                deleted = true;
+                console.log(`URL deleted from Redis: ${shortCode}`);
+            }
+        }
+        
+        if (deleted) {
+            res.json({
+                message: 'URL başarıyla silindi!',
+                shortCode,
+                originalUrl,
+                deletedFrom: redis ? 'Redis ve Memory' : 'Sadece Memory'
+            });
+        } else {
+            res.status(404).json({ error: 'URL bulunamadı!' });
+        }
+        
+    } catch (error) {
+        console.error('Error deleting URL:', error);
+        res.status(500).json({ error: 'URL silinirken hata oluştu' });
+    }
+});
+
+// Toplu URL silme endpoint'i (şifre korumalı)
+app.delete('/api/delete-all', async (req, res) => {
+    const { password } = req.body;
+    
+    // Şifre kontrolü
+    const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
+    if (!password || password !== adminPassword) {
+        return res.status(401).json({ 
+            error: 'Yetkisiz erişim! Doğru şifre gerekli.'
+        });
+    }
+    
+    try {
+        let deletedCount = 0;
+        
+        // Memory'den tümünü sil
+        const memoryCount = urlDatabase.size;
+        urlDatabase.clear();
+        deletedCount += memoryCount;
+        
+        // Redis'ten tümünü sil
+        if (redis) {
+            const urlKeys = await redis.keys('url:*');
+            const metaKeys = await redis.keys('meta:*');
+            const allKeys = [...urlKeys, ...metaKeys];
+            
+            if (allKeys.length > 0) {
+                await redis.del(...allKeys);
+                console.log(`Deleted ${allKeys.length} keys from Redis`);
+            }
+        }
+        
+        res.json({
+            message: 'Tüm URL\'ler başarıyla silindi!',
+            deletedCount: memoryCount,
+            deletedFrom: redis ? 'Redis ve Memory' : 'Sadece Memory'
+        });
+        
+    } catch (error) {
+        console.error('Error deleting all URLs:', error);
+        res.status(500).json({ error: 'URL\'ler silinirken hata oluştu' });
+    }
+});
+
 // Direkt URL kısaltma testi (GET ile)
 app.get('/api/shorten-test', async (req, res) => {
     const testUrl = 'https://store.steampowered.com/app/3527290/PEAK/';
