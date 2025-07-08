@@ -51,11 +51,18 @@ app.post('/api/shorten', (req, res) => {
     
     // Özel isim verilmişse onu kullan, yoksa rastgele oluştur
     if (customName && customName.trim()) {
-        shortCode = customName.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
+        // Nokta, tire, alt çizgi ve alfanümerik karakterlere izin ver
+        shortCode = customName.trim().toLowerCase().replace(/[^a-z0-9.\-_]/g, '');
         
         // Özel isim boş kalırsa rastgele oluştur
         if (!shortCode) {
             shortCode = crypto.randomBytes(4).toString('hex');
+        }
+        
+        // Static file extension'larla çakışmasın
+        const forbiddenExtensions = ['.css', '.js', '.png', '.ico', '.jpg', '.jpeg', '.gif', '.svg'];
+        if (forbiddenExtensions.some(ext => shortCode.endsWith(ext))) {
+            return res.status(400).json({ error: 'Bu URL adı sistem dosyalarıyla çakışıyor! Başka bir isim deneyin.' });
         }
         
         // Bu isim zaten kullanılıyor mu kontrol et
@@ -135,12 +142,12 @@ app.get('/', (req, res) => {
 app.get('/:shortCode', (req, res) => {
     const { shortCode } = req.params;
     
-    // Static dosyaları ve favicon'u hariç tut
-    if (shortCode.includes('.') || 
-        shortCode === 'favicon.ico' || 
-        shortCode === 'favicon.png' ||
-        shortCode === 'script.js' ||
-        shortCode === 'style.css') {
+    // Sadece belirli static dosyaları hariç tut (nokta genel olarak hariç değil)
+    const staticFiles = ['favicon.ico', 'favicon.png', 'script.js', 'style.css', 'robots.txt'];
+    const fileExtensions = ['.css', '.js', '.png', '.ico', '.jpg', '.jpeg', '.gif', '.svg', '.woff', '.woff2', '.ttf'];
+    
+    if (staticFiles.includes(shortCode) || 
+        fileExtensions.some(ext => shortCode.endsWith(ext))) {
         console.log('Static file request ignored:', shortCode);
         return res.status(404).send('File not found');
     }
