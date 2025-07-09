@@ -1,42 +1,38 @@
+// Firefox için uyumlu background script (Manifest V2)
+
 // Context menu oluştur
-chrome.runtime.onInstalled.addListener(function() {
-    console.log('makeURL Extension yüklendi, context menu oluşturuluyor...');
+browser.runtime.onInstalled.addListener(function() {
+    console.log('makeURL Firefox Extension yüklendi, context menu oluşturuluyor...');
     
     // Sağ tık menüsüne "URL Kısalt" seçeneği ekle
-    chrome.contextMenus.create({
+    browser.contextMenus.create({
         id: "shortenUrl",
         title: "Bu Sayfayı Kısalt",
         contexts: ["page"]
-    }, function() {
-        if (chrome.runtime.lastError) {
-            console.error('Context menu oluşturma hatası:', chrome.runtime.lastError);
-        } else {
-            console.log('Context menu "Bu Sayfayı Kısalt" oluşturuldu');
-        }
+    }).then(() => {
+        console.log('Context menu "Bu Sayfayı Kısalt" oluşturuldu');
+    }).catch((error) => {
+        console.error('Context menu oluşturma hatası:', error);
     });
 
-    chrome.contextMenus.create({
+    browser.contextMenus.create({
         id: "shortenLink",
         title: "Bu Linki Kısalt",
         contexts: ["link"]
-    }, function() {
-        if (chrome.runtime.lastError) {
-            console.error('Link context menu oluşturma hatası:', chrome.runtime.lastError);
-        } else {
-            console.log('Context menu "Bu Linki Kısalt" oluşturuldu');
-        }
+    }).then(() => {
+        console.log('Context menu "Bu Linki Kısalt" oluşturuldu');
+    }).catch((error) => {
+        console.error('Link context menu oluşturma hatası:', error);
     });
     
     // Hoş geldin mesajı (sadece ilk kurulumda)
-    if (chrome.runtime.getManifest().version) {
-        chrome.tabs.create({
-            url: 'https://url-redirect-two.vercel.app/?welcome=chrome-extension'
-        });
-    }
+    browser.tabs.create({
+        url: 'https://url-redirect-two.vercel.app/?welcome=firefox-extension'
+    });
 });
 
 // Context menu tıklamaları
-chrome.contextMenus.onClicked.addListener(async function(info, tab) {
+browser.contextMenus.onClicked.addListener(async function(info, tab) {
     console.log('Context menu tıklandı:', info.menuItemId);
     
     if (info.menuItemId === "shortenUrl") {
@@ -73,7 +69,7 @@ async function shortenUrl(url, tab) {
             await copyToClipboard(data.shortUrl, tab);
             
             // Bildirim göster
-            chrome.notifications.create({
+            browser.notifications.create({
                 type: 'basic',
                 iconUrl: 'icons/icon48.png',
                 title: 'makeURL',
@@ -81,7 +77,7 @@ async function shortenUrl(url, tab) {
             });
 
             // Storage'a kaydet
-            chrome.storage.local.set({
+            browser.storage.local.set({
                 lastShortened: {
                     originalUrl: url,
                     shortUrl: data.shortUrl,
@@ -91,7 +87,7 @@ async function shortenUrl(url, tab) {
 
         } else {
             // Hata bildirimini göster
-            chrome.notifications.create({
+            browser.notifications.create({
                 type: 'basic',
                 iconUrl: 'icons/icon48.png',
                 title: 'makeURL - Hata',
@@ -100,7 +96,7 @@ async function shortenUrl(url, tab) {
         }
     } catch (error) {
         console.error('Shorten URL error:', error);
-        chrome.notifications.create({
+        browser.notifications.create({
             type: 'basic',
             iconUrl: 'icons/icon48.png',
             title: 'makeURL - Hata',
@@ -109,32 +105,47 @@ async function shortenUrl(url, tab) {
     }
 }
 
-// Clipboard'a kopyala (service worker'da)
+// Clipboard'a kopyala
 async function copyToClipboard(text, tab) {
     try {
-        // Content script'e mesaj gönder
-        await chrome.tabs.sendMessage(tab.id, {
-            action: 'copyToClipboard',
-            text: text
-        });
-        console.log('Clipboard\'a kopyalandı:', text);
+        // Firefox'ta navigator.clipboard API kullan
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+            console.log('Clipboard\'a kopyalandı (modern API):', text);
+        } else {
+            // Fallback: Content script'e mesaj gönder
+            await browser.tabs.sendMessage(tab.id, {
+                action: 'copyToClipboard',
+                text: text
+            });
+            console.log('Clipboard\'a kopyalandı (fallback):', text);
+        }
     } catch (error) {
         console.error('Clipboard error:', error);
+        // Son çare: Content script fallback
+        try {
+            await browser.tabs.sendMessage(tab.id, {
+                action: 'copyToClipboard',
+                text: text
+            });
+        } catch (fallbackError) {
+            console.error('Clipboard fallback error:', fallbackError);
+        }
     }
 }
 
-// Extension icon'a tıklama
-chrome.action.onClicked.addListener(function(tab) {
-    // Popup açılacak (manifest.json'da tanımlı)
+// Browser action tıklama (Firefox'ta browserAction)
+browser.browserAction.onClicked.addListener(function(tab) {
     console.log('Extension icon tıklandı');
+    // Popup açılacak (manifest.json'da tanımlı)
 });
 
 // Keyboard shortcuts
-chrome.commands.onCommand.addListener(async function(command) {
+browser.commands.onCommand.addListener(async function(command) {
     console.log('Klavye komutu:', command);
     
     if (command === "shorten-current-page") {
-        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        const tabs = await browser.tabs.query({ active: true, currentWindow: true });
         if (tabs[0]) {
             console.log('Klavye kısayolu ile URL kısaltılıyor:', tabs[0].url);
             await shortenUrl(tabs[0].url, tabs[0]);

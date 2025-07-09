@@ -1,27 +1,30 @@
 {
-    "manifest_version": 3,
+    "manifest_version": 2,
     "name": "makeURL - URL Kısaltıcı",
     "version": "1.0",
     "description": "Herhangi bir sayfada hızlıca URL kısaltın. Güvenli ve hızlı.",
+    
     "permissions": [
         "activeTab",
         "contextMenus",
         "storage",
-        "notifications"
-    ],
-    "host_permissions": [
+        "notifications",
         "https://url-redirect-two.vercel.app/*"
     ],
+    
     "background": {
-        "service_worker": "background.js"
+        "scripts": ["background.js"],
+        "persistent": false
     },
+    
     "content_scripts": [
         {
             "matches": ["<all_urls>"],
             "js": ["content.js"]
         }
     ],
-    "action": {
+    
+    "browser_action": {
         "default_popup": "popup.html",
         "default_title": "URL Kısalt",
         "default_icon": {
@@ -31,6 +34,7 @@
             "128": "icons/icon128.png"
         }
     },
+    
     "commands": {
         "shorten-current-page": {
             "suggested_key": {
@@ -40,10 +44,18 @@
             "description": "Mevcut sayfayı kısalt"
         }
     },
+    
     "icons": {
         "16": "icons/icon16.png",
         "32": "icons/icon32.png",
         "48": "icons/icon48.png",
         "128": "icons/icon128.png"
+    },
+    
+    "applications": {
+        "gecko": {
+            "id": "makeurl@makeurl.com",
+            "strict_min_version": "48.0"
+        }
     }
 } 
